@@ -1,10 +1,15 @@
 
-# UEP Student Management System - Production Setup Guide
+# UEP Student Management System - VistaPanel Setup Guide
+
+**NOTE**: You must update your PHP files in `htdocs/api/` with the code below. We have switched to using `POST` for everything to fix "Database Not Updating" issues on shared hosting.
 
 ## 1. 🚨 DATABASE SQL (Run in phpMyAdmin)
 
+**You likely already have this.** If you created the tables before, you **DO NOT** need to run this again unless you are missing the `grades` table.
+
 ```sql
-CREATE TABLE `users` (
+-- Create Users Table
+CREATE TABLE IF NOT EXISTS `users` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `student_id` varchar(20) DEFAULT NULL,
   `name` varchar(100) NOT NULL,
@@ -21,7 +26,8 @@ CREATE TABLE `users` (
   UNIQUE KEY `email` (`email`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
-CREATE TABLE `grades` (
+-- Create Grades Table
+CREATE TABLE IF NOT EXISTS `grades` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `student_db_id` int(11) NOT NULL,
   `course_code` varchar(20) NOT NULL,
@@ -32,7 +38,8 @@ CREATE TABLE `grades` (
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
-CREATE TABLE `notifications` (
+-- Create Notifications Table
+CREATE TABLE IF NOT EXISTS `notifications` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `title` varchar(255) NOT NULL,
   `message` text NOT NULL,
@@ -42,7 +49,8 @@ CREATE TABLE `notifications` (
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
-INSERT INTO `users` (`name`, `email`, `password`, `role`, `status`) VALUES
+-- Create Admin User (If not exists)
+INSERT IGNORE INTO `users` (`name`, `email`, `password`, `role`, `status`) VALUES
 ('System Administrator', 'admin@uep.edu', 'admin123', 'admin', 'active');
 ```
 
@@ -50,30 +58,48 @@ INSERT INTO `users` (`name`, `email`, `password`, `role`, `status`) VALUES
 
 ## 2. 🐘 PHP BACKEND FILES (Upload to `htdocs/api/`)
 
-Create a folder named `api` in your `htdocs`. Create these 5 files inside it.
+**INSTRUCTIONS:** 
+1. Open VistaPanel File Manager.
+2. Go to `htdocs`.
+3. Create a folder named `api` (if not exists).
+4. Update these files with the code below.
 
 ### 1. `db_connect.php`
+*I have pre-filled this with your ByetHost settings based on your website link.*
 ```php
 <?php
+// Display errors for debugging connection issues
+ini_set('display_errors', 1);
+ini_set('display_startup_errors', 1);
+error_reporting(E_ALL);
+
 header("Access-Control-Allow-Origin: *");
-header("Access-Control-Allow-Methods: GET, POST, PUT, DELETE, PATCH, OPTIONS");
+header("Access-Control-Allow-Methods: GET, POST, OPTIONS");
 header("Access-Control-Allow-Headers: Content-Type");
+header("Content-Type: application/json; charset=UTF-8");
 
 if ($_SERVER['REQUEST_METHOD'] == 'OPTIONS') {
     http_response_code(200);
     exit();
 }
 
-$servername = "sql300.epizy.com"; // CHECK VISTAPANEL
-$username = "epiz_XXXXXXX";       // CHECK VISTAPANEL
-$password = "YOUR_PASSWORD";      // YOUR PASSWORD
-$dbname = "epiz_XXXXXXX_uep_sms"; // YOUR DB NAME
+// !!! YOUR SPECIFIC DATABASE SETTINGS !!!
+$servername = "sql309.byethost17.com"; // Usually sql309 for byethost17, check VistaPanel if this fails
+$username = "b17_40616482";            // Based on your DB name prefix
+$password = "YOUR_VISTAPANEL_PASSWORD"; // <--- ENTER YOUR PASSWORD HERE
+$dbname = "b17_40616482_uep_db";       // Your specific database
 
 $conn = new mysqli($servername, $username, $password, $dbname);
 
 if ($conn->connect_error) {
-    die(json_encode(["error" => "Connection failed: " . $conn->connect_error]));
+    // If sql309 fails, try "localhost"
+    $conn = new mysqli("localhost", $username, $password, $dbname);
+    if ($conn->connect_error) {
+        die(json_encode(["error" => "Database Connection Failed: " . $conn->connect_error]));
+    }
 }
+
+$conn->set_charset("utf8mb4");
 ?>
 ```
 
@@ -81,46 +107,46 @@ if ($conn->connect_error) {
 ```php
 <?php
 require 'db_connect.php';
+
 $data = json_decode(file_get_contents("php://input"));
 $action = $data->action ?? '';
 
 if ($action == 'login') {
     $email = $conn->real_escape_string($data->email);
     $pass = $data->password;
-    $res = $conn->query("SELECT * FROM users WHERE email='$email'");
-    if ($res->num_rows > 0) {
-        $user = $res->fetch_assoc();
-        if ($pass === $user['password']) { // Simple check (Use password_verify in real prod)
+    
+    $result = $conn->query("SELECT * FROM users WHERE email='$email'");
+    
+    if ($result->num_rows > 0) {
+        $user = $result->fetch_assoc();
+        // NOTE: For security in production, use password_verify()
+        if ($pass === $user['password']) {
              if($user['status'] == 'pending') {
-                 http_response_code(403);
                  echo json_encode(["error" => "Account pending approval"]);
              } else {
                  echo json_encode(["success" => true, "user" => $user]);
              }
         } else {
-            http_response_code(401);
             echo json_encode(["error" => "Invalid password"]);
         }
     } else {
-        http_response_code(404);
         echo json_encode(["error" => "User not found"]);
     }
-} elseif ($action == 'register') {
+} 
+elseif ($action == 'register') {
     $name = $conn->real_escape_string($data->name);
     $email = $conn->real_escape_string($data->email);
-    $pass = $data->password; // Hash in real prod
+    $pass = $data->password;
     
     $check = $conn->query("SELECT id FROM users WHERE email='$email'");
     if ($check->num_rows > 0) {
-        http_response_code(409);
         echo json_encode(["error" => "Email already exists"]);
     } else {
         $sql = "INSERT INTO users (name, email, password, role, status) VALUES ('$name', '$email', '$pass', 'student', 'pending')";
         if ($conn->query($sql)) {
             echo json_encode(["success" => true]);
         } else {
-            http_response_code(500);
-            echo json_encode(["error" => $conn->error]);
+            echo json_encode(["error" => "DB Error: " . $conn->error]);
         }
     }
 }
@@ -132,46 +158,64 @@ $conn->close();
 ```php
 <?php
 require 'db_connect.php';
-$method = $_SERVER['REQUEST_METHOD'];
 
-if ($method == 'GET') {
-    $res = $conn->query("SELECT * FROM users WHERE role='student' ORDER BY created_at DESC");
+// Handle GET requests for fetching lists
+if ($_SERVER['REQUEST_METHOD'] === 'GET') {
+    $result = $conn->query("SELECT * FROM users WHERE role='student' ORDER BY created_at DESC");
     $users = [];
-    while($row = $res->fetch_assoc()) {
+    while($row = $result->fetch_assoc()) {
         $users[] = $row;
     }
     echo json_encode($users);
-} elseif ($method == 'POST') {
-    $data = json_decode(file_get_contents("php://input"));
+    exit();
+}
+
+// Handle POST requests for Add/Update/Delete
+$data = json_decode(file_get_contents("php://input"));
+$action = $data->action ?? '';
+
+if ($action == 'add_student') {
     $name = $conn->real_escape_string($data->name);
     $email = $conn->real_escape_string($data->email);
+    $sid = $conn->real_escape_string($data->student_id);
     $prog = $conn->real_escape_string($data->program);
-    $pass = $data->password ?? '123456';
-    
-    $sql = "INSERT INTO users (name, email, password, role, status, program, year_level) 
-            VALUES ('$name', '$email', '$pass', 'student', 'active', '$prog', $data->year_level)";
-    if($conn->query($sql)) echo json_encode(["success"=>true]);
-    else echo json_encode(["error"=>$conn->error]);
-} elseif ($method == 'PUT') {
-    $data = json_decode(file_get_contents("php://input"));
-    $id = $data->id;
+    $pass = $data->password;
+    $yl = (int)$data->year_level;
+
+    $sql = "INSERT INTO users (name, email, password, role, status, student_id, program, year_level) 
+            VALUES ('$name', '$email', '$pass', 'student', 'active', '$sid', '$prog', $yl)";
+            
+    if($conn->query($sql)) echo json_encode(["success" => true]);
+    else echo json_encode(["error" => $conn->error]);
+
+} 
+elseif ($action == 'update_student') {
+    $id = (int)$data->id;
     $name = $conn->real_escape_string($data->name);
     $sid = $conn->real_escape_string($data->student_id);
     $prog = $conn->real_escape_string($data->program);
+    $yl = (int)$data->year_level;
+
+    $sql = "UPDATE users SET name='$name', student_id='$sid', program='$prog', year_level=$yl WHERE id=$id";
     
-    $sql = "UPDATE users SET name='$name', student_id='$sid', program='$prog', year_level=$data->year_level WHERE id=$id";
-    if($conn->query($sql)) echo json_encode(["success"=>true]);
-} elseif ($method == 'PATCH') {
-    $data = json_decode(file_get_contents("php://input"));
-    $id = $data->id;
-    $status = $data->status;
+    if($conn->query($sql)) echo json_encode(["success" => true]);
+    else echo json_encode(["error" => $conn->error]);
+
+} 
+elseif ($action == 'update_status') {
+    $id = (int)$data->id;
+    $status = $conn->real_escape_string($data->status);
     $conn->query("UPDATE users SET status='$status' WHERE id=$id");
-    echo json_encode(["success"=>true]);
-} elseif ($method == 'DELETE') {
-    $id = $_GET['id'];
+    echo json_encode(["success" => true]);
+
+} 
+elseif ($action == 'delete_student') {
+    $id = (int)$data->id;
     $conn->query("DELETE FROM users WHERE id=$id");
-    echo json_encode(["success"=>true]);
+    $conn->query("DELETE FROM grades WHERE student_db_id=$id"); // Clean up grades
+    echo json_encode(["success" => true]);
 }
+
 $conn->close();
 ?>
 ```
@@ -180,45 +224,75 @@ $conn->close();
 ```php
 <?php
 require 'db_connect.php';
-$method = $_SERVER['REQUEST_METHOD'];
 
-if ($method == 'GET') {
-    $sid = $_GET['student_id'];
-    $res = $conn->query("SELECT * FROM grades WHERE student_db_id=$sid");
+// GET Grades
+if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['student_id'])) {
+    $sid = (int)$_GET['student_id'];
+    $result = $conn->query("SELECT * FROM grades WHERE student_db_id=$sid");
     $grades = [];
-    while($row = $res->fetch_assoc()) $grades[] = $row;
+    while($row = $result->fetch_assoc()) $grades[] = $row;
     echo json_encode($grades);
-} elseif ($method == 'POST') {
-    $data = json_decode(file_get_contents("php://input"));
-    $sid = $data->student_id;
-    $cc = $data->course_code;
-    $cn = $data->course_name;
-    $gr = $data->grade;
-    $sc = $data->score;
-    $sem = $data->semester;
-    
-    $sql = "INSERT INTO grades (student_db_id, course_code, course_name, grade, score, semester) VALUES ($sid, '$cc', '$cn', '$gr', $sc, '$sem')";
-    if($conn->query($sql)) {
-        // Recalculate GPA
-        $avg = $conn->query("SELECT AVG(NULLIF(grade,0)) as gpa FROM grades WHERE student_db_id=$sid AND grade REGEXP '^[0-9]'")->fetch_assoc()['gpa'];
-        $conn->query("UPDATE users SET gpa=$avg WHERE id=$sid");
-        echo json_encode(["success"=>true]);
-    }
-} elseif ($method == 'PUT') {
-    $data = json_decode(file_get_contents("php://input"));
-    $id = $data->id;
-    $cc = $data->course_code;
-    $cn = $data->course_name;
-    $gr = $data->grade;
-    $sc = $data->score;
-    $sem = $data->semester;
-    $conn->query("UPDATE grades SET course_code='$cc', course_name='$cn', grade='$gr', score=$sc, semester='$sem' WHERE id=$id");
-    echo json_encode(["success"=>true]);
-} elseif ($method == 'DELETE') {
-    $id = $_GET['id'];
-    $conn->query("DELETE FROM grades WHERE id=$id");
-    echo json_encode(["success"=>true]);
+    exit();
 }
+
+$data = json_decode(file_get_contents("php://input"));
+$action = $data->action ?? '';
+
+if ($action == 'add_grade') {
+    $sid = (int)$data->student_id;
+    $cc = $conn->real_escape_string($data->course_code);
+    $cn = $conn->real_escape_string($data->course_name);
+    $gr = $conn->real_escape_string($data->grade);
+    $sc = (int)$data->score;
+    $sem = $conn->real_escape_string($data->semester);
+
+    $sql = "INSERT INTO grades (student_db_id, course_code, course_name, grade, score, semester) 
+            VALUES ($sid, '$cc', '$cn', '$gr', $sc, '$sem')";
+            
+    if($conn->query($sql)) {
+        // Recalculate GPA logic (Only average numeric grades 1.0 - 5.0)
+        $avgRes = $conn->query("SELECT AVG(NULLIF(grade,0)) as gpa FROM grades WHERE student_db_id=$sid AND grade REGEXP '^[0-9]'");
+        if($avgRes) {
+            $avg = $avgRes->fetch_assoc()['gpa'];
+            if($avg) $conn->query("UPDATE users SET gpa=$avg WHERE id=$sid");
+        }
+        echo json_encode(["success" => true]);
+    } else {
+        echo json_encode(["error" => $conn->error]);
+    }
+
+} 
+elseif ($action == 'update_grade') {
+    $id = (int)$data->id;
+    $cc = $conn->real_escape_string($data->course_code);
+    $cn = $conn->real_escape_string($data->course_name);
+    $gr = $conn->real_escape_string($data->grade);
+    $sc = (int)$data->score;
+    $sem = $conn->real_escape_string($data->semester);
+
+    $sql = "UPDATE grades SET course_code='$cc', course_name='$cn', grade='$gr', score=$sc, semester='$sem' WHERE id=$id";
+    if($conn->query($sql)) {
+        // Trigger GPA update even on edit
+        $res = $conn->query("SELECT student_db_id FROM grades WHERE id=$id");
+        if($res) {
+             $sid = $res->fetch_assoc()['student_db_id'];
+             $avgRes = $conn->query("SELECT AVG(NULLIF(grade,0)) as gpa FROM grades WHERE student_db_id=$sid AND grade REGEXP '^[0-9]'");
+             if($avgRes) {
+                 $avg = $avgRes->fetch_assoc()['gpa'];
+                 if($avg) $conn->query("UPDATE users SET gpa=$avg WHERE id=$sid");
+             }
+        }
+        echo json_encode(["success" => true]);
+    }
+    else echo json_encode(["error" => $conn->error]);
+
+} 
+elseif ($action == 'delete_grade') {
+    $id = (int)$data->id;
+    if($conn->query("DELETE FROM grades WHERE id=$id")) echo json_encode(["success" => true]);
+    else echo json_encode(["error" => $conn->error]);
+}
+
 $conn->close();
 ?>
 ```
@@ -227,24 +301,43 @@ $conn->close();
 ```php
 <?php
 require 'db_connect.php';
-$method = $_SERVER['REQUEST_METHOD'];
 
-if ($method == 'GET') {
-    $res = $conn->query("SELECT * FROM notifications ORDER BY created_at DESC");
+if ($_SERVER['REQUEST_METHOD'] === 'GET') {
+    $result = $conn->query("SELECT * FROM notifications ORDER BY created_at DESC");
     $data = [];
-    while($row = $res->fetch_assoc()) $data[] = $row;
+    while($row = $result->fetch_assoc()) $data[] = $row;
     echo json_encode($data);
-} elseif ($method == 'POST') {
-    $d = json_decode(file_get_contents("php://input"));
-    $t = $conn->real_escape_string($d->title);
-    $m = $conn->real_escape_string($d->message);
-    $conn->query("INSERT INTO notifications (title, message, type) VALUES ('$t', '$m', '$d->type')");
-    echo json_encode(["success"=>true]);
-} elseif ($method == 'DELETE') {
-    $id = $_GET['id'];
-    $conn->query("DELETE FROM notifications WHERE id=$id");
-    echo json_encode(["success"=>true]);
+    exit();
 }
+
+$data = json_decode(file_get_contents("php://input"));
+$action = $data->action ?? '';
+
+if ($action == 'add_notif') {
+    $t = $conn->real_escape_string($data->title);
+    $m = $conn->real_escape_string($data->message);
+    $type = $conn->real_escape_string($data->type);
+    
+    if($conn->query("INSERT INTO notifications (title, message, type) VALUES ('$t', '$m', '$type')"))
+        echo json_encode(["success" => true]);
+    else 
+        echo json_encode(["error" => $conn->error]);
+} 
+elseif ($action == 'delete_notif') {
+    $id = (int)$data->id;
+    $conn->query("DELETE FROM notifications WHERE id=$id");
+    echo json_encode(["success" => true]);
+}
+
 $conn->close();
+?>
+```
+
+### 6. `test_db.php`
+Use this file to check if your database password is correct.
+```php
+<?php
+require 'db_connect.php';
+echo json_encode(["message" => "Connected successfully to Database!"]);
 ?>
 ```

@@ -12,11 +12,15 @@ async function handleResponse(response: Response) {
       const error = (data && data.error) || response.statusText;
       throw new Error(error);
     }
+    // If PHP returns {error: "msg"}, throw it
+    if (data.error) {
+      throw new Error(data.error);
+    }
     return data;
-  } catch (e) {
-    // If response isn't JSON, it's likely a PHP error or 404 HTML
-    console.error("API Error:", text);
-    throw new Error(text || response.statusText);
+  } catch (e: any) {
+    // Log the raw text response for debugging (visible in browser console)
+    console.error("API Error (Raw Response):", text);
+    throw new Error(e.message || "Server Error. Check Console.");
   }
 }
 
@@ -63,6 +67,17 @@ const mapNotifFromDB = (n: any): Notification => ({
 });
 
 export const api = {
+  async checkHealth() {
+    try {
+      const res = await fetch(`${API_BASE}/db_connect.php`);
+      const text = await res.text();
+      if(text.includes('Connection failed')) throw new Error(text);
+      return true;
+    } catch (e) {
+      return false;
+    }
+  },
+
   // --- AUTH ---
   async login(email: string, password: string) {
     const res = await fetch(`${API_BASE}/auth.php`, {
@@ -85,21 +100,21 @@ export const api = {
 
   // --- STUDENTS ---
   async getStudents() {
-    const res = await fetch(`${API_BASE}/students.php`);
+    // GET is usually safe
+    const res = await fetch(`${API_BASE}/students.php?action=get_all`);
     const data = await handleResponse(res);
     return data.map(mapUserFromDB) as StudentProfile[];
   },
 
   async addStudent(student: Partial<StudentProfile>) {
-    // Map JS to PHP fields
     const payload = {
+      action: 'add_student',
       name: student.name,
       email: student.email,
       student_id: student.studentId,
       program: student.program,
       year_level: student.yearLevel,
-      // Default password for manually created students
-      password: 'uepstudent123' 
+      password: 'uepstudent123'
     };
 
     const res = await fetch(`${API_BASE}/students.php`, {
@@ -112,6 +127,7 @@ export const api = {
 
   async updateStudent(student: StudentProfile) {
     const payload = {
+      action: 'update_student',
       id: student.id,
       name: student.name,
       email: student.email,
@@ -120,8 +136,9 @@ export const api = {
       year_level: student.yearLevel
     };
     
+    // Using POST instead of PUT
     const res = await fetch(`${API_BASE}/students.php`, {
-      method: 'PUT',
+      method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     });
@@ -129,30 +146,34 @@ export const api = {
   },
 
   async deleteStudent(id: string) {
-    const res = await fetch(`${API_BASE}/students.php?id=${id}`, {
-      method: 'DELETE'
+    // Using POST instead of DELETE
+    const res = await fetch(`${API_BASE}/students.php`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'delete_student', id })
     });
     return await handleResponse(res);
   },
 
   async approveStudent(id: string) {
     const res = await fetch(`${API_BASE}/students.php`, {
-      method: 'PATCH',
+      method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id, status: 'active' })
+      body: JSON.stringify({ action: 'update_status', id, status: 'active' })
     });
     return await handleResponse(res);
   },
 
   // --- GRADES ---
   async getGrades(studentId: string) {
-    const res = await fetch(`${API_BASE}/grades.php?student_id=${studentId}`);
+    const res = await fetch(`${API_BASE}/grades.php?action=get_grades&student_id=${studentId}`);
     const data = await handleResponse(res);
     return data.map(mapGradeFromDB) as Grade[];
   },
 
   async addGrade(studentId: string, grade: Omit<Grade, 'id'>) {
     const payload = {
+      action: 'add_grade',
       student_id: studentId,
       course_code: grade.courseId,
       course_name: grade.courseName,
@@ -170,6 +191,7 @@ export const api = {
 
   async updateGrade(grade: Grade) {
     const payload = {
+      action: 'update_grade',
       id: grade.id,
       course_code: grade.courseId,
       course_name: grade.courseName,
@@ -178,7 +200,7 @@ export const api = {
       semester: grade.semester
     };
     const res = await fetch(`${API_BASE}/grades.php`, {
-      method: 'PUT',
+      method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     });
@@ -186,15 +208,17 @@ export const api = {
   },
 
   async deleteGrade(id: string) {
-    const res = await fetch(`${API_BASE}/grades.php?id=${id}`, {
-      method: 'DELETE'
+    const res = await fetch(`${API_BASE}/grades.php`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'delete_grade', id })
     });
     return await handleResponse(res);
   },
 
   // --- NOTIFICATIONS ---
   async getNotifications() {
-    const res = await fetch(`${API_BASE}/notifications.php`);
+    const res = await fetch(`${API_BASE}/notifications.php?action=get_all`);
     const data = await handleResponse(res);
     return data.map(mapNotifFromDB);
   },
@@ -203,14 +227,16 @@ export const api = {
     const res = await fetch(`${API_BASE}/notifications.php`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(notif)
+      body: JSON.stringify({ ...notif, action: 'add_notif' })
     });
     return await handleResponse(res);
   },
 
   async deleteNotification(id: string) {
-    const res = await fetch(`${API_BASE}/notifications.php?id=${id}`, {
-      method: 'DELETE'
+    const res = await fetch(`${API_BASE}/notifications.php`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'delete_notif', id })
     });
     return await handleResponse(res);
   }
