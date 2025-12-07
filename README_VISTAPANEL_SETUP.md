@@ -1,8 +1,9 @@
 # UEP Student Management System - VistaPanel Setup Guide
 
-## 🚨 DATABASE SQL (COPY THIS FIRST) 🚨
+## 1. 🚨 DATABASE SQL (COPY THIS FIRST) 🚨
 
-Run this SQL in your **phpMyAdmin** to set up the database structure correctly.
+Run this SQL in your **phpMyAdmin** on VistaPanel. 
+**Note:** We do not need a separate 'Subjects' table. Storing course details directly with the grade is easier and faster for this type of system.
 
 ```sql
 -- Create Users Table with Status
@@ -46,11 +47,37 @@ INSERT INTO `users` (`name`, `email`, `password`, `role`, `status`) VALUES
 
 ---
 
-## Phase 2: PHP Backend Files
+## 2. 🏗️ HOW TO BUILD & UPLOAD (Frontend)
 
-Create a folder named `api` inside your `htdocs` folder on VistaPanel. Create the following files inside `htdocs/api/`.
+To get the files ready for VistaPanel:
 
-### 1. `db_connect.php`
+1.  Open your terminal in the project folder.
+2.  Run the command:
+    ```bash
+    npm run build
+    ```
+3.  This will create a **`dist`** folder in your project.
+4.  Open the `dist` folder. You should see:
+    *   `assets/` (folder containing .js and .css files)
+    *   `index.html`
+    *   `vite.svg` (optional)
+
+### Uploading to VistaPanel:
+1.  Go to the **File Manager** (MonstaFTP) in VistaPanel.
+2.  Open the **`htdocs`** folder.
+3.  **Delete** the default `index2.html` or empty files if any.
+4.  **Upload** everything **inside** your local `dist` folder into `htdocs`.
+    *   Your `index.html` should be at `htdocs/index.html`.
+    *   Your `assets` folder should be at `htdocs/assets/`.
+
+---
+
+## 3. 🐘 PHP BACKEND SETUP
+
+Create a folder named `api` inside your `htdocs` folder (`htdocs/api`).
+Create the following files inside that folder.
+
+### `db_connect.php`
 *Change the variables to match your VistaPanel MySQL details.*
 
 ```php
@@ -72,7 +99,7 @@ if ($conn->connect_error) {
 ?>
 ```
 
-### 2. `add_grade.php`
+### `add_grade.php`
 
 ```php
 <?php
@@ -80,7 +107,7 @@ require 'db_connect.php';
 $data = json_decode(file_get_contents("php://input"));
 
 if(isset($data->studentId) && isset($data->courseId)) {
-    $studentId = $data->studentId; // This is the Database ID (e.g., 5)
+    $studentId = $data->studentId; 
     $courseId = $data->courseId;
     $courseName = $data->courseName;
     $grade = $data->grade;
@@ -91,7 +118,6 @@ if(isset($data->studentId) && isset($data->courseId)) {
             VALUES ($studentId, '$courseId', '$courseName', '$grade', $score, '$semester')";
 
     if ($conn->query($sql) === TRUE) {
-        // Recalculate GPA logic can go here or in frontend
         echo json_encode(["success" => true, "message" => "Grade added successfully"]);
     } else {
         echo json_encode(["error" => "Error: " . $conn->error]);
@@ -101,7 +127,7 @@ $conn->close();
 ?>
 ```
 
-### 3. `update_grade.php`
+### `update_grade.php`
 
 ```php
 <?php
@@ -134,7 +160,7 @@ $conn->close();
 ?>
 ```
 
-### 4. `delete_grade.php`
+### `delete_grade.php`
 
 ```php
 <?php
@@ -155,7 +181,7 @@ $conn->close();
 ?>
 ```
 
-### 5. `login.php` (Updated)
+### `login.php`
 
 ```php
 <?php
