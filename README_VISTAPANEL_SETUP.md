@@ -3,7 +3,6 @@
 ## 1. 🚨 DATABASE SQL (COPY THIS FIRST) 🚨
 
 Run this SQL in your **phpMyAdmin** on VistaPanel. 
-**Note:** We do not need a separate 'Subjects' table. Storing course details directly with the grade is easier and faster for this type of system.
 
 ```sql
 -- Create Users Table with Status
@@ -56,6 +55,7 @@ To get the files ready for VistaPanel:
     ```bash
     npm run build
     ```
+    *If this command fails, ensure you have run `npm install` first.*
 3.  This will create a **`dist`** folder in your project.
 4.  Open the `dist` folder. You should see:
     *   `assets/` (folder containing .js and .css files)
@@ -249,3 +249,15 @@ if(isset($data->email) && isset($data->password)) {
 $conn->close();
 ?>
 ```
+
+---
+
+## 🚨 TROUBLESHOOTING WHITE SCREEN
+
+If you still see a white screen after uploading:
+
+1.  **Check Browser Console**: Right-click > Inspect > Console. If you see 404 errors for `.js` files, your paths are wrong.
+    *   *Solution:* Ensure `vite.config.ts` has `base: './'`.
+2.  **No Asset Folder?**: This means `npm run build` didn't find your files.
+    *   *Solution:* Ensure `index.html` has `<script type="module" src="./index.tsx"></script>`.
+3.  **Clear Cache**: Sometimes the browser remembers the broken version. Try Incognito mode.
