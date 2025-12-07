@@ -1,6 +1,7 @@
+
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { User, AuthState, UserRole } from '../types';
-import { db } from '../services/mockDatabase';
+import { api } from '../services/api';
 
 interface AuthContextType extends AuthState {
   login: (email: string, pass: string) => Promise<void>;
@@ -18,10 +19,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   });
 
   useEffect(() => {
-    // Check for existing session
-    const user = db.getSession();
-    if (user) {
-      setState({ user, isAuthenticated: true, isLoading: false });
+    // Check for existing session in localStorage
+    const savedUser = localStorage.getItem('uep_session_user');
+    if (savedUser) {
+      try {
+        setState({ user: JSON.parse(savedUser), isAuthenticated: true, isLoading: false });
+      } catch (e) {
+        localStorage.removeItem('uep_session_user');
+        setState(prev => ({ ...prev, isLoading: false }));
+      }
     } else {
       setState(prev => ({ ...prev, isLoading: false }));
     }
@@ -30,7 +36,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const login = async (email: string, pass: string) => {
     setState(prev => ({ ...prev, isLoading: true }));
     try {
-      const user = await db.login(email, pass);
+      const user = await api.login(email, pass);
+      localStorage.setItem('uep_session_user', JSON.stringify(user));
       setState({ user, isAuthenticated: true, isLoading: false });
     } catch (error) {
       setState(prev => ({ ...prev, isLoading: false }));
@@ -41,8 +48,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const register = async (name: string, email: string, pass: string) => {
     setState(prev => ({ ...prev, isLoading: true }));
     try {
-      // Registration only creates the record, does not log in (needs approval)
-      await db.register(name, email, pass);
+      await api.register(name, email, pass);
       setState(prev => ({ ...prev, isLoading: false }));
     } catch (error) {
       setState(prev => ({ ...prev, isLoading: false }));
@@ -51,7 +57,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const logout = () => {
-    db.logout();
+    localStorage.removeItem('uep_session_user');
     setState({ user: null, isAuthenticated: false, isLoading: false });
   };
 
