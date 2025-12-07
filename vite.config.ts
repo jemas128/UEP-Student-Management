@@ -11,5 +11,13 @@ export default defineConfig({
     assetsDir: 'assets',
     sourcemap: false,
     emptyOutDir: true,
+    rollupOptions: {
+      output: {
+        // Ensure standard naming to avoid caching issues
+        entryFileNames: 'assets/[name]-[hash].js',
+        chunkFileNames: 'assets/[name]-[hash].js',
+        assetFileNames: 'assets/[name]-[hash].[ext]'
+      }
+    }
   }
 });
